@@ -37,10 +37,10 @@ var (
 )
 
 const (
-	idLen     = 8
-	prefixLen = 1 + idLen /*tableID*/ + 2
+	idLen     = 8                                        // tableID or handle
+	prefixLen = 1 + idLen /*tableID*/ + 2                // tablePrefix_tableID_recordPrefixSep
 	// RecordRowKeyLen is public for calculating average row size.
-	RecordRowKeyLen       = prefixLen + idLen /*handle*/
+	RecordRowKeyLen       = prefixLen + idLen /*handle*/ // key
 	tablePrefixLength     = 1
 	recordPrefixSepLength = 2
 )
@@ -57,7 +57,7 @@ func TablePrefix() []byte {
 func appendTableRecordPrefix(buf []byte, tableID int64) []byte {
 	buf = append(buf, tablePrefix...)
 	buf = codec.EncodeInt(buf, tableID)
-	buf = append(buf, recordPrefixSep...)
+	buf = append(buf, recordPrefixSep...) // tablePrefix_tableID_recordPrefixSep
 	return buf
 }
 
@@ -65,7 +65,7 @@ func appendTableRecordPrefix(buf []byte, tableID int64) []byte {
 func EncodeRowKeyWithHandle(tableID int64, handle int64) kv.Key {
 	buf := make([]byte, 0, RecordRowKeyLen)
 	buf = appendTableRecordPrefix(buf, tableID)
-	buf = codec.EncodeInt(buf, handle)
+	buf = codec.EncodeInt(buf, handle) // tablePrefix_tableID_recordPrefixSep_handle
 	return buf
 }
 
@@ -98,6 +98,14 @@ func DecodeRecordKey(key kv.Key) (tableID int64, handle int64, err error) {
 	 *   5. understanding the coding rules is a prerequisite for implementing this function,
 	 *      you can learn it in the projection 1-2 course documentation.
 	 */
+	
+	if len(key) != RecordRowKeyLen {
+		return 0, 0, errInvalidRecordKey.GenWithStack("invalid record key - %q", key)
+	}
+	// key == tablePrefix_tableID_recordPrefixSep_handle
+	key, tableID, _ = codec.DecodeInt(key[tablePrefixLength:])
+	// key == recordPrefixSep_handle
+	key, handle, _ = codec.DecodeInt(key[recordPrefixSepLength:])
 	return
 }
 
@@ -105,7 +113,7 @@ func DecodeRecordKey(key kv.Key) (tableID int64, handle int64, err error) {
 func appendTableIndexPrefix(buf []byte, tableID int64) []byte {
 	buf = append(buf, tablePrefix...)
 	buf = codec.EncodeInt(buf, tableID)
-	buf = append(buf, indexPrefixSep...)
+	buf = append(buf, indexPrefixSep...) // tablePrefix_tableID_indexPrefixSep
 	return buf
 }
 
@@ -114,7 +122,7 @@ func EncodeIndexSeekKey(tableID int64, idxID int64, encodedValue []byte) kv.Key 
 	key := make([]byte, 0, prefixLen+idLen+len(encodedValue))
 	key = appendTableIndexPrefix(key, tableID)
 	key = codec.EncodeInt(key, idxID)
-	key = append(key, encodedValue...)
+	key = append(key, encodedValue...) // tablePrefix_tableID_indexPrefixSep_idxID_encodedValue
 	return key
 }
 
@@ -148,6 +156,15 @@ func DecodeIndexKeyPrefix(key kv.Key) (tableID int64, indexID int64, indexValues
 	 *   5. understanding the coding rules is a prerequisite for implementing this function,
 	 *      you can learn it in the projection 1-2 course documentation.
 	 */
+	if len(key) < RecordRowKeyLen {
+		return 0, 0, nil, errInvalidIndexKey.GenWithStack("invalid index key - %q", key)
+	}
+	// key == tablePrefix_tableID_indexPrefixSep_indexID_indexValues
+	key, tableID, _ = codec.DecodeInt(key[tablePrefixLength:])
+	// key == indexPrefixSep_indexID_indexValues
+	key, indexID, _ = codec.DecodeInt(key[recordPrefixSepLength:])
+	// key == indexValues
+	indexValues = key
 	return tableID, indexID, indexValues, nil
 }
 
